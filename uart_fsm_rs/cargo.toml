@@ -1,0 +1,21 @@
+[package]
+name = "uart_fsm_demo"
+version = "0.3.0"
+edition = "2021"
+
+[features]
+default = ["std", "demo_sim"]
+demo_sim = []
+demo_file = []
+demo_tty = []
+std = []
+crc16 = []
+byte_stuff = []
+tickless = []
+
+[dependencies]
+heapless = "0.8"
+
+[[bin]]
+name = "uart_fsm_demo"
+path = "src/main.rs"
