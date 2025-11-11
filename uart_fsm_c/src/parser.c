@@ -19,6 +19,7 @@
  * - Retrieve the number of consecutive invalid frames
  *
  * @author Nick Constant + ChatGPT
+ * @date 2025-11-11
  */
 
 #include "parser.h"

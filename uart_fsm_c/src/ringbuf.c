@@ -18,7 +18,7 @@
  * - Get current length with rb_len()
  *
  * @author Nick Constant + ChatGPT
- * @date 2024-06-15
+ * @date 2025-11-11
  */
 
 #include "ringbuf.h"

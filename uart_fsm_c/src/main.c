@@ -16,7 +16,7 @@
  * - `./uart_fsm_demo --serial <device>` to read from a serial device
  *
  * @author Nick Constant + ChatGPT
- * @date 2024-06-15
+ * @date 2025-11-11
  */
 
 #include <stdio.h>
