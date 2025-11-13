@@ -1,21 +1,41 @@
 [package]
-name = "uart_fsm_demo"
+name = "uart_fsm_rs"
 version = "0.3.0"
 edition = "2021"
 
+[build-dependencies]
+cc = "1.0"
+
 [features]
-default = ["std", "demo_sim"]
+# Default keeps std for demos/binaries.
+default = ["std"]
+
+# Demo modes (choose exactly one when running the bin)
 demo_sim = []
 demo_file = []
 demo_tty = []
+demo_c = []
+
+# Platform / parsing features
 std = []
+
+# Checksum/CRC features:
+# - `crc16` → CRC16-CCITT enabled
+# - `crc16_2b` → *two-byte* CRC emission and parsing (MSB, LSB)
+#                 This feature IMPLIES `crc16`. If you only enable `crc16`
+#                 (without `crc16_2b`), the legacy *one-byte* LSB mode remains.
 crc16 = []
+crc16_2b = ["crc16"]
+
+# Optional byte stuffing for all post-SYNC bytes
 byte_stuff = []
+
+# Tickless scheduling (for FSM)
 tickless = []
 
 [dependencies]
 heapless = "0.8"
 
 [[bin]]
-name = "uart_fsm_demo"
+name = "uart_fsm_rs"
 path = "src/main.rs"

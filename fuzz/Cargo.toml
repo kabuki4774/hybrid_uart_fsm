@@ -1,0 +1,29 @@
+# fuzz/Cargo.toml
+[package]
+name = "fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.rust_logic]
+path = "../rust_logic"
+default-features = false
+features = ["std","crc16_2b","byte_stuff"]
+
+[[bin]]
+name = "fuzz_parser"
+path = "fuzz_targets/fuzz_parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_diff"
+path = "fuzz_targets/fuzz_diff.rs"
+test = false
+doc = false

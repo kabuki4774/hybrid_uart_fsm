@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "rust_logic",
+    "fuzz",
+    "uart_fsm_rs",
+]
+resolver = "2"
+
+

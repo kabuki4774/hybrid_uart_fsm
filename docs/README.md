@@ -29,3 +29,11 @@ for embedded or host-simulated environments.
 * **Hybrid C↔Rust FFI integration**
 * **Differential fuzzing** across implementations
 * **Regression runner** for long-term equivalence
+
+---
+
+## Build Surfaces
+
+•	C‑only: make -C uart_fsm_c ...
+•	Hybrid: make -C c_firmware ... (builds rust_logic with features, then links C).
+•	Rust‑only demos: cargo run -p uart_fsm_rs ...

@@ -1,47 +1,44 @@
 //! Logger trait and implementations for UART FSM
-//! Provides a simple logging interface for capturing log messages.
-//! Intended for no_std environments with optional alloc support.
+//! ---------------------------------------------
+//! - `Logger` trait: simple `.line(&str)` sink.
+//! - `StdoutLogger` (std-only): prints to stdout.
+//! - `CaptureLogger`: appends lines to a fixed heapless buffer (used by tests).
+//!
+//! `no_std`: Works without `alloc`. We format into a `heapless::String`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-/// Generic logger trait for portable builds.
-
-#[cfg(not(feature = "std"))]
-extern crate alloc;
-
-#[cfg(not(feature = "std"))]
-use alloc::format;
-
-#[cfg(feature = "std")]
-use std::format;
-
 pub trait Logger {
+    /// Emit one log line (the caller provides the newline, or the impl may add it).
     fn line(&mut self, s: &str);
 }
 
-/// Standard output logger (only in std builds)
+/// Standard output logger (only exists under `std`).
 #[cfg(feature = "std")]
 pub struct StdoutLogger;
 
 #[cfg(feature = "std")]
 impl Logger for StdoutLogger {
     fn line(&mut self, s: &str) {
-        println!("{}", s);
+        println!("{s}");
     }
 }
 
-/// Capture logger used for testing (works in no_std too)
+/// Capture logger used by testing/harness to assert output.
+/// Stores lines in a fixed-capacity heapless string buffer.
 pub struct CaptureLogger {
     buf: heapless::String<1024>,
 }
 
 impl CaptureLogger {
+    /// Create a fresh capture logger.
     pub fn new() -> Self {
         Self {
             buf: heapless::String::new(),
         }
     }
 
+    /// Consume and return the captured buffer.
     pub fn take(self) -> heapless::String<1024> {
         self.buf
     }

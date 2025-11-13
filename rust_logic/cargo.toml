@@ -1,0 +1,27 @@
+[package]
+name = "rust_logic"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+name = "rust_logic"
+crate-type = ["lib", "staticlib"]  # staticlib for C linking
+
+[dependencies]
+uart_fsm_rs = { path = "../uart_fsm_rs", default-features = false }
+
+[build-dependencies]
+cc = "1.0"
+
+[features]
+default = ["std"]
+std = []
+crc16 = ["uart_fsm_rs/crc16"]
+crc16_2b = ["uart_fsm_rs/crc16_2b", "crc16"]     # ensure crc16 when using 2B mode
+byte_stuff = ["uart_fsm_rs/byte_stuff"]
+tickless = ["uart_fsm_rs/tickless"]
+
+[[bin]]
+name = "diff_scan"
+path = "src/bin/diff_scan.rs"

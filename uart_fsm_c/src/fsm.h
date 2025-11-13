@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include "parser.h"
 
+#ifndef USE_TICKLESS
 #define USE_TICKLESS 1
+#endif
 
 typedef enum
 {
@@ -27,8 +29,6 @@ void fsm_init(fsm_t *f);
 void fsm_tick(fsm_t *f, uint32_t now_ms);
 void fsm_on_invalid_consecutive(fsm_t *f, unsigned int n);
 void fsm_handle_packet(fsm_t *f, const packet_t *pkt);
-uint32_t fsm_next_deadline_ms(const fsm_t *f);
-
 #if USE_TICKLESS
 uint32_t fsm_next_deadline_ms(const fsm_t *f);
 #endif

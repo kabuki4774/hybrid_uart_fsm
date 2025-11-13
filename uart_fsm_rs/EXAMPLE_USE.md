@@ -1,6 +1,6 @@
 # UART FSM Simulator — Quick Command Cheat Sheet
 
-This doc summarizes the common commands to simulate UART traffic between two virtual TTYs and your FSM app.
+This doc summarizes the common commands to simulate UART traffic between two virtual TTYs.
 
 ---
 

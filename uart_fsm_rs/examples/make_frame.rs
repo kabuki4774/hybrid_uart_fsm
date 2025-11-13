@@ -24,7 +24,7 @@
 
 use std::env;
 use std::io::{self, Write};
-use uart_fsm_demo::harness::make_frame;
+use uart_fsm_rs::harness::make_frame;
 
 fn main() {
     // Usage:

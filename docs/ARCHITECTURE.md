@@ -129,11 +129,11 @@ Both can coexist and call each other safely.
 | Parser FSM | Bytes | Valid/invalid packets | Checks LEN, TYPE, CHK |
 | Device FSM | Packets | State transitions, heartbeats | 3-state logic |
 | Logger | Events | Text logs | For test harness only |
-| Fuzzers | Random data | Code coverage, crash corpus | Verifies stability | [coming soon]
+| Fuzzers | Random data | Code coverage, crash corpus | Verifies stability | 
 
 ---
 
-## 7. Interfaces Overview [coming soon]
+## 7. Interfaces Overview 
 
 ### From C
 ```c

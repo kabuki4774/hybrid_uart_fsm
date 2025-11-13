@@ -35,24 +35,30 @@ typedef struct
 
 typedef struct
 {
-    /* internal state, opaque */
+    /* internal state */
     int state;
     uint8_t len;
     uint8_t typ;
     uint8_t payload[PING_PAYLOAD_MAX];
     size_t payload_idx;
-    uint16_t sum;
+    uint16_t sum; /* for 8-bit checksum mode */
     unsigned int invalid_consec;
+
+    /* CRC bytes (if CRC16 mode) */
+    uint8_t crc_hi;
+    uint8_t crc_lo;
+
+    /* byte-stuffing escape state */
+    uint8_t esc_next;
 } parser_t;
 
 void parser_init(parser_t *p);
 unsigned int parser_invalid_consecutive(const parser_t *p);
 
-/* Feed a byte; returns:
+/* Returns:
    0 -> no complete packet yet
-   1 -> a valid packet was produced and written to out
-   -1 -> parser resynced due to bad frame (invalid detected)
-   Note: consecutive invalids are tracked internally.
+   1 -> a valid packet produced and written to 'out'
+  -1 -> invalid detected (resync to SYNC)
 */
 int parser_feed_byte(parser_t *p, uint8_t b, packet_t *out);
 

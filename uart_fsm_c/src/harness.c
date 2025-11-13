@@ -1,28 +1,11 @@
 /**
  * harness.c
  * @brief Test harness for UART FSM and parser.
- * This file contains functions to simulate feeding byte streams
- * into the UART parser and FSM, including demo scenarios and
- * support for reading from stdin or serial devices.
  *
- * Features:
- * - Demo sequences with valid and invalid packets
- * - Feeding bytes in configurable chunk sizes
- * - Support for tickless mode simulation
- * - Optional serial port reading for live data
- * - Ring buffer integration to simulate ISR behavior
- * - Parser and FSM interaction
- * - Configurable capture mode (not implemented)
- * - Built-in demos for quick testing
- * - Ability to run from stdin or serial device
- *
- * Usage:
- * - Call `run_demos()` to execute built-in demo sequences
- * - Call `run_from_stdin()` to read raw bytes from stdin
- * - Call `run_from_serial(<device>)` to read from a serial device
- *
- * @author Nick Constant + ChatGPT
- * @date 2025-11-11
+ * Builds spec-correct frames matching compile-time features:
+ *  - CRC16 mode: CRC-CCITT over [LEN, TYPE, PAYLOAD...] with 2-byte checksum
+ *  - 8-bit mode : ~((LEN + TYPE + sum(payload)) & 0xFF) 1-byte checksum
+ * Escapes ALL bytes after SYNC (LEN/TYPE/PAYLOAD/CHECKSUM) when USE_BYTESTUFF=1.
  */
 
 #include "ringbuf.h"
@@ -30,33 +13,136 @@
 #include "fsm.h"
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h> /* for usleep on POSIX */
+#include <unistd.h>
+#include <stdint.h>
 
+#ifndef USE_TICKLESS
 #define USE_TICKLESS 1
+#endif
+#ifndef USE_SERIAL
 #define USE_SERIAL 1
+#endif
+#ifndef USE_CRC16
+#define USE_CRC16 1
+#endif
+#ifndef USE_BYTESTUFF
+#define USE_BYTESTUFF 1
+#endif
 
+// --------------- CRC16 helper ---------------
+#if USE_CRC16
+static uint16_t crc16_ccitt(const uint8_t *buf, size_t len)
+{
+    uint16_t crc = 0xFFFF;
+    for (size_t i = 0; i < len; ++i)
+    {
+        crc ^= (uint16_t)buf[i] << 8;
+        for (int j = 0; j < 8; ++j)
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
+    }
+    return crc;
+}
+#else
+static uint8_t checksum8(uint8_t len, uint8_t typ, const uint8_t *payload, size_t n)
+{
+    uint16_t s = (uint16_t)len + (uint16_t)typ;
+    for (size_t i = 0; i < n; ++i)
+        s = (uint16_t)(s + payload[i]);
+    return (uint8_t)(~(s & 0xFF));
+}
+#endif
+
+/* Byte-stuffed append (escapes 0xAA and 0x7D) */
+static inline void append_byte(uint8_t *dest, size_t cap, size_t *idx, uint8_t b)
+{
+#if USE_BYTESTUFF
+    if (b == 0xAA || b == 0x7D)
+    {
+        if (*idx + 2 <= cap)
+        {
+            dest[(*idx)++] = 0x7D;
+            dest[(*idx)++] = (uint8_t)(b ^ 0x20);
+        }
+    }
+    else
+#endif
+    {
+        if (*idx + 1 <= cap)
+        {
+            dest[(*idx)++] = b;
+        }
+    }
+}
+
+/**
+ * @brief Build a UART frame matching current features.
+ * Layout: [AA][LEN][TYPE][PAY...][CHK...] with proper escaping.
+ */
+static size_t build_frame(uint8_t *dest, size_t cap, uint8_t typ,
+                          const uint8_t *payload, size_t payload_len)
+{
+    if (!dest || cap < 8)
+        return 0;
+
+    size_t idx = 0;
+    dest[idx++] = SYNC_BYTE; // SYNC (never escaped)
+
+#if USE_CRC16
+    const uint8_t len = (uint8_t)(1 /*TYPE*/ + payload_len + 2 /*CRC*/);
+#else
+    const uint8_t len = (uint8_t)(1 /*TYPE*/ + payload_len + 1 /*CHK*/);
+#endif
+
+    // Compute checksum material [LEN, TYPE, PAY...]
+    uint8_t tmp[64];
+    size_t t = 0;
+    tmp[t++] = len;
+    tmp[t++] = typ;
+    for (size_t i = 0; i < payload_len && t < sizeof(tmp); ++i)
+        tmp[t++] = payload[i];
+
+#if USE_CRC16
+    const uint16_t crc = crc16_ccitt(tmp, t);
+#else
+    const uint8_t chk = checksum8(len, typ, payload, payload_len);
+#endif
+
+    // Emit escaped bytes after SYNC
+    append_byte(dest, cap, &idx, len);
+    append_byte(dest, cap, &idx, typ);
+
+    for (size_t i = 0; i < payload_len; ++i)
+        append_byte(dest, cap, &idx, payload[i]);
+
+#if USE_CRC16
+    append_byte(dest, cap, &idx, (uint8_t)(crc >> 8));
+    append_byte(dest, cap, &idx, (uint8_t)(crc & 0xFF));
+#else
+    append_byte(dest, cap, &idx, chk);
+#endif
+
+    return idx;
+}
+
+/* Feed bytes in chunks and tick the FSM */
 static void feed_bytes_in_chunks(uint8_t *data, size_t len, size_t chunks[], size_t nchunks,
                                  ringbuf_t *rb, parser_t *parser, fsm_t *fsm, uint32_t *now_ms, int capture_mode)
 {
     (void)capture_mode;
 
-    size_t cursor = 0;
-    size_t chunk_index = 0;
+    size_t cursor = 0, chunk_index = 0;
     while (cursor < len)
     {
         size_t cs = chunks[chunk_index % nchunks];
-        size_t to_copy = cs;
-        if (to_copy > (len - cursor))
-            to_copy = len - cursor;
+        size_t to_copy = (cs < (len - cursor)) ? cs : (len - cursor);
         for (size_t i = 0; i < to_copy; ++i)
         {
-            /* simulate ISR: push into ring buffer, drop on overflow */
-            (void)rb_push(rb, data[cursor + i]);
+            (void)rb_push(rb, data[cursor + i]); /* drop on overflow */
         }
         cursor += to_copy;
         chunk_index++;
 
-        /* pump: pop all bytes and feed parser */
+        /* pump */
         uint8_t b;
         while (rb_pop(rb, &b) == 0)
         {
@@ -64,12 +150,10 @@ static void feed_bytes_in_chunks(uint8_t *data, size_t len, size_t chunks[], siz
             int r = parser_feed_byte(parser, b, &pkt);
             fsm_on_invalid_consecutive(fsm, parser_invalid_consecutive(parser));
             if (r == 1)
-            {
                 fsm_handle_packet(fsm, &pkt);
-            }
         }
 
-/* tick 1 ms per loop for simulation */
+        /* tick */
 #if USE_TICKLESS
         uint32_t next = fsm_next_deadline_ms(fsm);
         if (next == 0)
@@ -82,7 +166,7 @@ static void feed_bytes_in_chunks(uint8_t *data, size_t len, size_t chunks[], siz
 #endif
     }
 
-    /* continue ticking a bit to allow heartbeats */
+    /* allow heartbeats to appear */
     for (int i = 0; i < 3000; ++i)
     {
         (*now_ms)++;
@@ -90,44 +174,15 @@ static void feed_bytes_in_chunks(uint8_t *data, size_t len, size_t chunks[], siz
     }
 }
 
-/* helper to build a frame into dest buffer. returns appended length */
-static size_t build_frame(uint8_t *dest, size_t cap, uint8_t typ, const uint8_t *payload, size_t payload_len)
-{
-    if (cap < (size_t)(1 + 1 + 1 + payload_len + 1))
-        return 0;
-    size_t idx = 0;
-    dest[idx++] = SYNC_BYTE;
-    uint8_t len = (uint8_t)(2 + payload_len); /* TYPE + payload + CHECKSUM */
-    dest[idx++] = len;
-    dest[idx++] = typ;
-    uint16_t s = len + typ;
-    for (size_t i = 0; i < payload_len; ++i)
-    {
-#if USE_BYTESTUFF
-        if (payload[i] == 0xAA || payload[i] == 0x7D)
-        {
-            dest[idx++] = 0x7D;
-            dest[idx++] = payload[i] ^ 0x20;
-            continue;
-        }
-#endif
-        dest[idx++] = payload[i];
-        s += payload[i];
-    }
-    uint8_t chk = (uint8_t)(~((uint8_t)(s & 0xFF)));
-    dest[idx++] = chk;
-    return idx;
-}
-
 /* Demo 1 - valid START -> PING("hi") -> STOP */
 void demo_valid_sequence(int capture_mode)
 {
     printf("=== DEMO 1: valid START -> PING(\"hi\") -> STOP ===\n");
-    uint8_t buf[64];
-    size_t n1 = build_frame(buf, sizeof(buf), T_START, NULL, 0);
-    size_t n2 = build_frame(buf + n1, sizeof(buf) - n1, T_PING, (const uint8_t *)"hi", 2);
-    size_t n3 = build_frame(buf + n1 + n2, sizeof(buf) - n1 - n2, T_STOP, NULL, 0);
-    size_t total = n1 + n2 + n3;
+    uint8_t buf[128];
+    size_t n = 0;
+    n += build_frame(buf + n, sizeof(buf) - n, T_START, NULL, 0);
+    n += build_frame(buf + n, sizeof(buf) - n, T_PING, (const uint8_t *)"hi", 2);
+    n += build_frame(buf + n, sizeof(buf) - n, T_STOP, NULL, 0);
 
     ringbuf_t rb;
     rb_init(&rb);
@@ -137,15 +192,25 @@ void demo_valid_sequence(int capture_mode)
     fsm_init(&fsm);
     uint32_t now_ms = 0;
     size_t chunks[] = {3, 1, 2, 5};
-    feed_bytes_in_chunks(buf, total, chunks, sizeof(chunks) / sizeof(chunks[0]), &rb, &parser, &fsm, &now_ms, capture_mode);
+    feed_bytes_in_chunks(buf, n, chunks, sizeof(chunks) / sizeof(chunks[0]),
+                         &rb, &parser, &fsm, &now_ms, capture_mode);
 }
 
-/* Demo 2 - noise + RESET recovery */
+/* Demo 2 - noise + RESET recovery (now uses a VALID RESET frame) */
 void demo_noise_reset(int capture_mode)
 {
     printf("=== DEMO 2: noise + RESET recovery ===\n");
-    uint8_t bytes[] = {0x13, 0x00, 0xAA, 0x01, 0xFF, 0xAA, 0x02, 0xFF, 0xFE};
-    size_t total = sizeof(bytes);
+
+    uint8_t buf[128];
+    size_t n = 0;
+
+    /* Noise & short/bad frame to trigger 3 invalids */
+    const uint8_t noise[] = {0x13, 0x00, 0xAA, 0x01, 0xFF};
+    memcpy(buf + n, noise, sizeof(noise));
+    n += sizeof(noise);
+
+    /* Valid RESET frame (matches features) */
+    n += build_frame(buf + n, sizeof(buf) - n, T_RESET, NULL, 0);
 
     ringbuf_t rb;
     rb_init(&rb);
@@ -155,7 +220,8 @@ void demo_noise_reset(int capture_mode)
     fsm_init(&fsm);
     uint32_t now_ms = 0;
     size_t chunks[] = {2, 2, 4};
-    feed_bytes_in_chunks(bytes, total, chunks, sizeof(chunks) / sizeof(chunks[0]), &rb, &parser, &fsm, &now_ms, capture_mode);
+    feed_bytes_in_chunks(buf, n, chunks, sizeof(chunks) / sizeof(chunks[0]),
+                         &rb, &parser, &fsm, &now_ms, capture_mode);
 }
 
 /* run all built-in demos */
@@ -176,17 +242,13 @@ void run_from_stdin(void)
     fsm_init(&fsm);
     uint32_t now_ms = 0;
 
-    /* Read stdin in blocks, feed into rb, and process loop (simulate ticks) */
     uint8_t tmp[256];
-    ssize_t n;
+    size_t n;
     while ((n = fread(tmp, 1, sizeof(tmp), stdin)) > 0)
     {
-        /* push into ringbuf */
-        for (ssize_t i = 0; i < n; ++i)
-        {
-            (void)rb_push(&rb, tmp[i]); /* drop on overflow */
-        }
-        /* process available bytes */
+        for (size_t i = 0; i < n; ++i)
+            (void)rb_push(&rb, tmp[i]);
+
         uint8_t b;
         while (rb_pop(&rb, &b) == 0)
         {
@@ -196,7 +258,6 @@ void run_from_stdin(void)
             if (r == 1)
                 fsm_handle_packet(&fsm, &pkt);
         }
-        /* advance some ms */
         now_ms += 10;
         fsm_tick(&fsm, now_ms);
     }
@@ -247,7 +308,8 @@ void run_from_serial(const char *device)
                 break;
         }
         for (ssize_t i = 0; i < n; ++i)
-            rb_push(&rb, buf[i]);
+            (void)rb_push(&rb, buf[i]);
+
         uint8_t b;
         while (rb_pop(&rb, &b) == 0)
         {

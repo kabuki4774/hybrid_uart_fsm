@@ -5,8 +5,9 @@
   "rust-analyzer.cargo.runBuildScripts": true,
   "rust-analyzer.checkOnSave.command": "clippy",
   "editor.formatOnSave": true,
-  "editor.rulers": [100],
-  "files.exclude": { "target": true, "fuzz": true },
+  "editor.rulers": [
+    100
+  ],
   "plantuml.render": "PlantUMLServer",
   "plantuml.server": "https://www.plantuml.com/plantuml",
   "markdown-preview-enhanced.previewTheme": "github-dark.css"

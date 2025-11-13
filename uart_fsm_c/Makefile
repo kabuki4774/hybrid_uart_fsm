@@ -1,11 +1,11 @@
 CC ?= clang
 CFLAGS_BASE = -std=c11 -O2 -Wall -Wextra -I./src
 
-# --- Feature flags (defaults) -----------------------------------------
-crc16 ?= 0
-byte_stuff ?= 0
-tickless ?= 0
-serial ?= 0
+# --- Feature flags (override at command line: `make crc16=0` etc.) -----
+crc16     ?= 1          # default on (matches Rust default when enabled)
+byte_stuff?= 1
+tickless  ?= 1
+serial    ?= 1
 
 CFLAGS += $(CFLAGS_BASE)
 CFLAGS += -DUSE_CRC16=$(crc16) -DUSE_BYTESTUFF=$(byte_stuff) \
@@ -15,7 +15,7 @@ SRCS = src/main.c src/ringbuf.c src/parser.c src/fsm.c src/harness.c
 OBJS = $(SRCS:.c=.o)
 BIN = uart_fsm_demo
 
-.PHONY: all clean run test
+.PHONY: all clean run test lib
 
 all: $(BIN)
 
@@ -32,7 +32,7 @@ test: $(BIN)
 	./$(BIN) --test
 
 clean:
-	rm -f $(OBJS) $(BIN)
+	rm -f $(OBJS) $(BIN) libuartfsm.a ringbuf.o parser.o fsm.o harness.o
 
 lib:
 	$(CC) $(CFLAGS) -c src/ringbuf.c src/parser.c src/fsm.c src/harness.c
